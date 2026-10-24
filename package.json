@@ -1,0 +1,31 @@
+{
+  "name": "muse-cli",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node dist/index.js",
+    "bootstrap": "node dist/src/cli/bootstrap.js",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.8",
+    "@noble/ciphers": "^1.2.1",
+    "@noble/curves": "^1.8.1",
+    "@noble/hashes": "^1.7.1",
+    "cycletls": "^1.0.27",
+    "form-data": "^4.0.6",
+    "hono": "^4.7.11",
+    "https-proxy-agent": "^7.0.2",
+    "pino": "^9.6.0",
+    "protobufjs": "^7.4.0",
+    "ws": "^8.18.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsx": "^4.19.3",
+    "typescript": "^5.9.3"
+  }
+}

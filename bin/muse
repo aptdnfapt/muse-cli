@@ -1,0 +1,123 @@
+#!/usr/bin/env node
+// muse — CLI for the muse.ai agent server (agent.ts) running per MUSE_SERVER.
+// Env: MUSE_SERVER (default http://127.0.0.1:8899)
+import { readFileSync } from "node:fs";
+
+const SERVER = process.env["MUSE_SERVER"] ?? "http://127.0.0.1:8899";
+const argv = process.argv.slice(2);
+let ACCOUNT = process.env["MUSE_ACCOUNT"] ?? "";
+const rest = [];
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === "-a" || a === "--account") { ACCOUNT = argv[++i] ?? ""; }
+  else if (a.startsWith("--account=")) { ACCOUNT = a.slice("--account=".length); }
+  else rest.push(a);
+}
+const [, , cmd, ...args] = [undefined, undefined, rest[0], ...rest.slice(1)];
+
+async function api(method, path, body) {
+  const q = ACCOUNT && path.includes("?") ? `&account=${encodeURIComponent(ACCOUNT)}` : (ACCOUNT ? `?account=${encodeURIComponent(ACCOUNT)}` : "");
+  const res = await fetch(SERVER + path + q, {
+    method,
+    headers: body !== undefined ? { "content-type": "application/json" } : {},
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+  const text = await res.text();
+  try { return JSON.parse(text); } catch { return { raw: text, status: res.status }; }
+}
+
+function print(v) { console.log(typeof v === "string" ? v : JSON.stringify(v, null, 2)); }
+
+async function main() {
+  switch (cmd) {
+    case "send": {
+      const msg = args.join(" ");
+      if (!msg) { console.error("usage: muse send <message>"); process.exit(1); }
+      const r = await api("POST", "/agent/send", { message: msg, wait_ms: 120000 });
+      if (r.ok) console.log(r.reply);
+      else { print(r); process.exit(2); }
+      break;
+    }
+    case "history": {
+      const limit = args[0] ?? "40";
+      const r = await api("GET", `/agent/history?limit=${limit}`);
+      if (!r.ok) { print(r); process.exit(2); }
+      const evs = r.history?.result?.chat_events ?? [];
+      for (const e of evs) {
+        if (e.event_name === "message.user" || e.event_name === "message.assistant") {
+          console.log(`[${e.event_name === "message.user" ? "you" : "muse"}] ${e.display_text ?? ""}`);
+        }
+      }
+      break;
+    }
+    case "approvals": {
+      print(await api("GET", "/agent/approvals"));
+      break;
+    }
+    case "approve": {
+      const [id, decision = "allow_once"] = args;
+      if (!id) { console.error("usage: muse approve <approval_id> [decision]"); process.exit(1); }
+      print(await api("POST", `/agent/approvals/${encodeURIComponent(id)}/decide`, { decision }));
+      break;
+    }
+    case "watch": {
+      const wait = args[0] ?? "25000";
+      print(await api("GET", `/agent/approvals/watch?wait_ms=${wait}`));
+      break;
+    }
+    case "usage": {
+      const r = await api("GET", "/agent/usage");
+      if (!r.ok) { print(r); process.exit(2); }
+      const u = r.usage ?? {};
+      console.log(`plan:        ${u.tier ?? "?"}`);
+      console.log(`state:       ${u.state ?? "?"} (${u.quota_status ?? "?"})`);
+      console.log(`weekly used: ${u.percent_used ?? "?"}%  |  ${u.resets_human ?? ""}`);
+      console.log(`top-up:      ${u.topup_label ?? "-"}  (balance ${u.topup_balance ?? "?"}/${u.topup_total ?? "?"})`);
+      break;
+    }
+    case "accounts": {
+      print(await api("GET", "/agent/accounts"));
+      break;
+    }
+    case "status": {
+      print(await api("GET", "/agent/status"));
+      break;
+    }
+    case "rpc": {
+      // muse rpc <verb> <path> [jsonBody] [service]
+      const [verb, path, bodyJson, service] = args;
+      if (!verb || !path) { console.error("usage: muse rpc <verb> <path> [jsonBody] [daemon|sentinel|authd]"); process.exit(1); }
+      let parsedBody;
+      if (bodyJson && bodyJson !== "-") {
+        try { parsedBody = JSON.parse(bodyJson); } catch { parsedBody = bodyJson; }
+      }
+      print(await api("POST", `/agent/rpc${path}`, {
+        verb, path,
+        ...(parsedBody !== undefined ? { body: parsedBody } : {}),
+        ...(service ? { service } : {}),
+      }));
+      break;
+    }
+    case "bootstrap": {
+      print(await api("POST", "/agent/bootstrap"));
+      break;
+    }
+    default:
+      console.error(`muse — CLI for muse.ai agent
+usage: muse <command>
+  send <message>              send a chat message, print Muse's reply
+  history [limit]             print recent chat transcript
+  usage                       plan, % used, reset date, top-up token balance
+  accounts                    list accounts (add -a <name> to any command)
+  approvals                   list pending approvals
+  approve <id> [decision]     decide an approval (default allow_once)
+  watch [wait_ms]             long-poll for the next approvals.snapshot
+  status                      server + VM + session status
+  rpc <verb> <path> [body] [service]   raw Noise-RPC passthrough
+  bootstrap                   refresh session.json from browser cookies
+env: MUSE_SERVER (default ${SERVER}), MUSE_ACCOUNT (default muse1)`);
+      process.exit(cmd ? 1 : 0);
+  }
+}
+
+main().catch((e) => { console.error(e.message ?? e); process.exit(2); });

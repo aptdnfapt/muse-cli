@@ -1,0 +1,11 @@
+node_modules/
+dist/
+data/
+reference/
+*.log
+*.orig
+proxy-debug.log
+session.json
+credentials.json
+.DS_Store
+.playwright-cli/
